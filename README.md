@@ -2,6 +2,8 @@
 
 **AI agents log in to websites with your [Bitwarden](https://bitwarden.com) credentials; the broker is built to keep the credentials away from the agent. Requires Bitwarden.**
 
+<img src="docs/demo-en.gif" width="480" alt="An AI agent asks for a password; the broker logs in after you approve in Bitwarden, and the agent gets only &quot;logged in to example.com&quot;">
+
 English | [日本語](README.ja.md)
 
 An [MCP](https://modelcontextprotocol.io) server (a plug-in that gives your AI agent new tools) that logs in on the agent's behalf and returns only the result. The password and one-time code are fetched through [Agent Access](https://github.com/bitwarden/agent-access) (`aac`) only when you approve it (or within an auto-approve you granted), used inside this process, and dropped. No tool returns the password, a one-time code, or the session.

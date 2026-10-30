@@ -2,6 +2,8 @@
 
 **AI エージェントが、あなたの [Bitwarden](https://bitwarden.com) の認証情報でウェブサイトにログインします。ブローカーは、認証情報をエージェントに渡さないように作られています。Bitwarden が必要です。**
 
+<img src="docs/demo-ja.gif" width="480" alt="AI がパスワードを尋ねる。Bitwarden で承認するとブローカーがログインし、AI には「logged in to example.com」だけが返る">
+
 [English](README.md) | 日本語
 
 エージェントの代わりにログインして、結果だけを返す [MCP](https://modelcontextprotocol.io) サーバー（エージェントに新しいツールを足す仕組み）です。パスワードとワンタイムコードは、あなたが承認したとき（または、あなたが許可した自動承認の範囲内）だけ [Agent Access](https://github.com/bitwarden/agent-access)（`aac`）経由で取り出し、このプロセスの中で使って捨てます。ツールはパスワードもワンタイムコードもログイン状態も返しません。
