@@ -490,17 +490,17 @@ function reloadRecipes() {
   Object.assign(RECIPES, fresh);
 }
 
-async function login(host) {
+async function login(host, pane) {
   reloadRecipes();
   const recipe = RECIPES[host];
   if (!recipe) throw new Error(`no recipe for ${host} in ${RECIPES_FILE}; call propose_recipe to draft one`);
-  await loginWithBrowser(host, recipe).catch((e) => handOverBotCheck(e, host, `https://${host}${recipe.loginPath}`));
+  await loginWithBrowser(host, recipe).catch((e) => handOverBotCheck(e, host, `https://${host}${recipe.loginPath}`, pane));
 }
 
 // A bot check needs the human: show them the login page and tell the agent to keep off it.
-async function handOverBotCheck(e, host, url) {
+async function handOverBotCheck(e, host, url, pane) {
   if (!e.botCheck) throw e;
-  const shown = await showPage(host, url, [], [], { session: false })
+  const shown = await showPage(host, url, [], [], { session: false }, pane)
     .then((s) => `${s} for the user to log in there themselves`, (err) => `could not show the login page (${err.message})`);
   throw new Error(`${host} stops automated logins with a bot check (${e.botCheck}), so no recipe can log in; ${shown}. ` +
     `Tell the user so. Do not read or drive that page while they log in, and do not call login or propose_recipe for ${host} again unless they ask.`);
@@ -583,12 +583,17 @@ const TERMINAL_BROWSER = process.env.AGENT_LOGIN_BROKER_TERMINAL_BROWSER || "ter
 let terminalBrowser;
 const hasTerminalBrowser = () => terminalBrowser ??= new Promise((resolve) =>
   execFile(TERMINAL_BROWSER, ["--version"], { timeout: 15_000 }, (err) => resolve(err?.code !== "ENOENT")));
-// The caller's herdr pane decides where terminal-browser splits. A stdio broker started without it
-// (Codex does not pass HERDR_* to plugin servers; or an agent outside herdr) would borrow
-// aac-listen's pane, away from the agent, so it opens a Chromium window instead. The detached
-// HTTP broker never has a pane and keeps aac-listen's.
+// The caller's herdr pane decides where terminal-browser splits: HERDR_PANE_ID for a stdio
+// broker, the PANE_HEADER of each request for the shared HTTP broker. A stdio broker without
+// it (Codex does not pass HERDR_* to plugin servers; or an agent outside herdr) would borrow
+// aac-listen's pane, away from the agent, so it opens a Chromium window instead. An HTTP
+// caller that names no pane keeps aac-listen's.
 let httpMode = false;
-const usesTerminalBrowser = async () => (httpMode || !!process.env.HERDR_PANE_ID) && hasTerminalBrowser();
+const usesTerminalBrowser = async (pane) => (httpMode || !!pane) && hasTerminalBrowser();
+
+export const PANE_HEADER = "x-agent-login-broker-pane";
+// herdr pane ids look like `w1M:p2`; anything else is ignored rather than handed to herdr.
+export const callerPane = (value) => (typeof value === "string" && /^w[A-Za-z0-9]{1,16}:p[A-Za-z0-9]{1,16}$/.test(value) ? value : undefined);
 
 // Only cookies the host itself would be sent (its own or a parent domain's): a login can
 // collect cookies of other sites (SSO, analytics) that the viewer has no business holding.
@@ -598,17 +603,17 @@ export const cookiesFor = (cookies, host) =>
 // Show the logged-in site to the human: in a terminal-browser pane inside herdr when
 // usesTerminalBrowser() holds, else in a Chromium window of this process. Either browser
 // only ever receives session state (the host's cookies and localStorage), never the password.
-async function openPage(host, path) {
+async function openPage(host, path, pane) {
   const ctx = browserSessions.get(host);
   if (!ctx) throw new Error(`not logged in to ${host}; call login first`);
   const url = pageUrl(host, path);
   const { cookies, origins = [] } = await ctx.storageState();
   const storage = origins.find((o) => o.origin === `https://${host}`)?.localStorage ?? [];
-  return showPage(host, url, cookiesFor(cookies, host), storage);
+  return showPage(host, url, cookiesFor(cookies, host), storage, undefined, pane);
 }
 
-const showPage = async (host, url, cookies, storage, opts) => (await usesTerminalBrowser())
-  ? openInTerminalBrowser(host, url, cookies, storage, opts)
+const showPage = async (host, url, cookies, storage, opts, pane) => (await usesTerminalBrowser(pane))
+  ? openInTerminalBrowser(host, url, cookies, storage, opts, pane)
   : openInChromium(host, url, cookies, storage, opts);
 
 // Main-frame documents are paused over CDP until `fn` settles: requests before they are
@@ -666,8 +671,8 @@ async function landOn(page, host, url, storage = [], { session = true } = {}) {
 // The session handed to terminal-browser is as reachable to the agent as anything in it
 // (`terminal-browser action`), and terminal-browser keeps one store for all its windows —
 // accepted: the session is what the human chose to share with the agent by opening it here.
-async function openInTerminalBrowser(host, url, cookies, storage, opts) {
-  const { key, cdpPort, target } = await brokerWindow();
+async function openInTerminalBrowser(host, url, cookies, storage, opts, pane) {
+  const { key, cdpPort, target } = await brokerWindow(pane);
 
   const { chromium } = await import("playwright");
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
@@ -712,10 +717,10 @@ async function openInChromium(host, url, cookies, storage, opts) {
   return `opened ${at} in a Chromium window`;
 }
 
-// One browser window for the broker, shared by the stdio and HTTP instances: each call
-// navigates it instead of splitting yet another pane. The window's key is remembered in a
-// file; if the human closed it, a new one replaces it.
-const WINDOW_FILE = `${process.env.HOME}/.cache/agent-login-broker/window`;
+// One browser window per agent pane (or, for an HTTP caller that names none, beside aac
+// listen): each call from there navigates it instead of splitting yet another pane. Its key
+// is remembered in a file; if the human closed it, a new one replaces it.
+const WINDOWS_DIR = `${process.env.HOME}/.cache/agent-login-broker/windows`;
 
 const listBrowsers = async () =>
   JSON.parse((await run(TERMINAL_BROWSER, ["ls", "--all", "--json"])) || "{}").browsers ?? [];
@@ -725,19 +730,19 @@ function windowOf(b) {
   return { key: b.key, cdpPort: b.cdpPort, target: tab.targetId };
 }
 
-async function brokerWindow() {
+export async function brokerWindow(pane) {
+  const file = `${WINDOWS_DIR}/${encodeURIComponent(pane ?? "aac-listen")}`;
   let known;
-  try { known = readFileSync(WINDOW_FILE, "utf8").trim(); } catch {}
+  try { known = readFileSync(file, "utf8").trim(); } catch {}
   const live = (await listBrowsers()).find((b) => b.key === known && b.tabs?.length);
   if (live) return windowOf(live);
 
-  // Split next to the caller's herdr pane (a stdio broker started by an agent inside herdr); the detached HTTP
-  // broker has none, so open beside aac listen instead.
-  const env = { ...process.env };
-  if (!env.HERDR_PANE_ID) {
+  // Split next to the caller's herdr pane; an HTTP caller that names none opens beside aac listen.
+  const env = { ...process.env, HERDR_ENV: "1", HERDR_PANE_ID: pane };
+  if (!pane) {
     const a = await approverWorkspace();
     if (!a?.pane) throw new Error("no herdr pane to open the browser in");
-    Object.assign(env, { HERDR_ENV: "1", HERDR_PANE_ID: a.pane });
+    env.HERDR_PANE_ID = a.pane;
   }
   // --no-merge: its own window, not a tab in some neighbour browser the human is using.
   // `open` prints "opened <key> …" (v0.15); details come from `ls`.
@@ -750,17 +755,17 @@ async function brokerWindow() {
     if (!b) await new Promise((r) => setTimeout(r, 250));
   }
   if (!b) throw new Error("terminal-browser window did not appear");
-  mkdirSync(dirname(WINDOW_FILE), { recursive: true });
-  writeFileSync(WINDOW_FILE, `${key}\n`);
+  mkdirSync(WINDOWS_DIR, { recursive: true });
+  writeFileSync(file, `${key}\n`);
   return windowOf(b);
 }
 
-async function buildServer(allowed) {
+async function buildServer(allowed, pane) {
   const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
   const { z } = await import("zod");
   const sites = allowed ? [...allowed].join(", ") || "(none configured)"
     : `any site with a recipe in ${RECIPES_FILE} (now: ${Object.keys(RECIPES).join(", ") || "none"})`;
-  const tb = await usesTerminalBrowser();
+  const tb = await usesTerminalBrowser(pane);
   // Agents otherwise reach for a general browser tool and type the password themselves
   // (Codex did exactly that — measured); the instructions tell them this server owns logins.
   const server = new McpServer({ name: "agent-login-broker", version: VERSION }, {
@@ -777,13 +782,13 @@ async function buildServer(allowed) {
   server.tool("login",
     `Log in to ${allowed ? `an allow-listed site (${sites})` : sites}. Use this instead of a browser for these sites. A human must approve the credential request in \`aac listen\`. The credential is never returned.`,
     { site: z.string().describe(allowed ? `host, one of: ${sites}` : "host, e.g. app.example.com") },
-    guard(async ({ site }) => { const h = checkSite(site, allowed); await login(h); return `logged in to ${h}`; }));
+    guard(async ({ site }) => { const h = checkSite(site, allowed); await login(h, pane); return `logged in to ${h}`; }));
 
   server.tool("open_page",
     `Show the logged-in site to the human ${tb ? "in a terminal-browser pane in herdr" : "in a Chromium window"}: a page under the site's success path (default: the success path itself). ` +
       (tb ? "The agent can then also drive that page through terminal-browser." : "The agent has no handle on that window."),
     { site: z.string(), path: z.string().optional() },
-    guard(async ({ site, path }) => openPage(checkSite(site, allowed), path)));
+    guard(async ({ site, path }) => openPage(checkSite(site, allowed), path, pane)));
 
   server.tool("propose_recipe",
     `Draft the recipe login needs for ${allowed ? `an allow-listed site (${sites})` : "a site"} by inspecting its login page without any credential. Nothing is saved.`,
@@ -791,7 +796,7 @@ async function buildServer(allowed) {
     guard(async ({ site, path }) => {
       const host = checkSite(site, allowed);
       if (!allowed && isInternalHost(host)) throw new Error(`${host} is an internal address; list it in AGENT_LOGIN_BROKER_SITES to draft a recipe for it`);
-      const draft = await proposeRecipe(host, path).catch((e) => handOverBotCheck(e, host, new URL(path ?? "/", `https://${host}/`).href));
+      const draft = await proposeRecipe(host, path).catch((e) => handOverBotCheck(e, host, new URL(path ?? "/", `https://${host}/`).href, pane));
       return `${JSON.stringify(draft, null, 2)}\n\n` +
         `1. Show this recipe to the user and get their approval before saving it: it decides which field receives the password.\n` +
         `2. successPath is unknown until a login: ask the user which path the site shows right after logging in, or save "/unknown" for now; ` +
@@ -842,7 +847,7 @@ async function serveHttp(port, allowed) {
       res.writeHead(401).end();
       return;
     }
-    const server = await buildServer(allowed);
+    const server = await buildServer(allowed, callerPane(req.headers[PANE_HEADER]));
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, enableDnsRebindingProtection: true, allowedHosts: hosts,
     });
@@ -865,7 +870,7 @@ async function main() {
     httpServer = await serveHttp(port, allowed);
   } else {
     const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
-    await (await buildServer(allowed)).connect(new StdioServerTransport());
+    await (await buildServer(allowed, callerPane(process.env.HERDR_PANE_ID))).connect(new StdioServerTransport());
     process.stdin.on("close", () => shutdown());
   }
   const shutdown = async () => {

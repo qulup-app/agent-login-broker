@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { aacReason, allowedSites, checkSite, cookiesFor, isInternalHost, loadRecipes, loadToken, onSite, pageUrl, parseCredential, tokenMatches, totpCode } from "./server.mjs";
+import { aacReason, allowedSites, callerPane, checkSite, cookiesFor, isInternalHost, loadRecipes, loadToken, onSite, pageUrl, parseCredential, tokenMatches, totpCode } from "./server.mjs";
 
 const SECRET = "hunter2-SECRET";
 
@@ -232,4 +232,40 @@ test("open_page uses terminal-browser only when the agent's herdr pane is known"
   });
   assert.match(await describe({ HERDR_PANE_ID: "w1:p1" }), /terminal-browser pane/);
   assert.match(await describe({}), /Chromium window/);
+});
+
+test("callerPane accepts herdr pane ids and nothing else", () => {
+  assert.equal(callerPane("w1M:p2"), "w1M:p2");
+  for (const bad of [undefined, "", "garbage", "not-a-pane", "w1M", "w1:t1", "w1:p1; rm -rf /", "../x", `w${"a".repeat(17)}:p1`, ["w1:p1"]]) assert.equal(callerPane(bad), undefined, String(bad));
+});
+
+test("the HTTP broker keeps terminal-browser whether or not the caller names its pane", async () => {
+  const { spawn } = await import("node:child_process");
+  const dir = mkdtempSync(join(tmpdir(), "lb-http-"));
+  const tokenFile = join(dir, "token");
+  const port = 47_000 + Math.floor(Math.random() * 1000);
+  const p = spawn(process.execPath, [new URL("./server.mjs", import.meta.url).pathname, "--http", String(port)], {
+    env: { ...process.env, AGENT_LOGIN_BROKER_TOKEN_FILE: tokenFile, AGENT_LOGIN_BROKER_TERMINAL_BROWSER: process.execPath, AGENT_LOGIN_BROKER_SITES: "a.example" },
+    stdio: "ignore",
+  });
+  try {
+    const describe = async (headers) => {
+      for (let i = 0; i < 40; i++) {
+        try {
+          const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
+            method: "POST",
+            headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "x-agent-login-broker-token": readFileSync(tokenFile, "utf8").trim(), ...headers },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+          });
+          return /open_page[^}]*?"description":"([^"]*)"/.exec(await res.text())?.[1] ?? "";
+        } catch { await new Promise((r) => setTimeout(r, 250)); }
+      }
+      throw new Error("HTTP broker did not start");
+    };
+    assert.match(await describe({}), /terminal-browser pane/);
+    assert.match(await describe({ "x-agent-login-broker-pane": "w9:p9" }), /terminal-browser pane/);
+  } finally {
+    p.kill();
+    rmSync(dir, { recursive: true });
+  }
 });

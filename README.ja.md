@@ -15,7 +15,7 @@ AI エージェントの代わりに、あなたの ID とパスワードでウ�
 サイトごとに**レシピ**が必要です。レシピはログインページの場所と、アカウントとパスワードを入れる
 欄を書いた数行の設定です。案はエージェントが作り、保存する前にあなたに見せます。
 
-> **状態: 初期版（0.1.1）。** パスワードを扱うツールです。使う前に
+> **状態: 初期版（0.1.2）。** パスワードを扱うツールです。使う前に
 > [守れること・守れないこと](#守れること守れないこと)を読んでください。
 > 動作を確認したのは macOS だけで、Linux と Windows は未確認です。
 
@@ -38,11 +38,11 @@ AI エージェントの代わりに、あなたの ID とパスワードでウ�
 
 1. 使っているエージェントにプラグインを入れる（[導入](#導入)）。入れたらエージェントを起動し
    直し、ツールの一覧（Claude Code なら `/mcp`）に `agent-login-broker` が出ることを確かめる。
-2. このリリースに合った Chromium を入れる。下のコマンドは 0.1.1 用です。別のリリースでは、
+2. このリリースに合った Chromium を入れる。下のコマンドは 0.1.2 用です。別のリリースでは、
    プラグインのバージョン（エージェントのプラグイン一覧に出ます）に置き換えてください。
 
    ```bash
-   npx -y -p agent-login-broker@0.1.1 playwright install chromium
+   npx -y -p agent-login-broker@0.1.2 playwright install chromium
    ```
 
    バージョンを付けない `npx playwright install chromium` は最新の Playwright 用のブラウザを入れるので、
@@ -309,15 +309,15 @@ claude() { aac_listen_ensure; command claude "$@"; }   # codex、omp、pi も同
   要求のたびに、その workspace に画面を移して通知を出し、承認が済んだら元の場所に戻します
   （その間に自分で移動していれば戻しません）。herdr が無い場合は、代わりにデスクトップ通知が
   出ます（[ペアと承認](#ペアと承認)を参照）。
-- `open_page` は、エージェントの herdr ペインの隣に terminal-browser のペインを分割します。その後、
-  terminal-browser を使う `open_page` は、どのエージェントや HTTP モードからでも、あなたが閉じるまで
-  その 1 つの窓をその場所のまま使い回します。**エージェントは `terminal-browser action` でこのページを操作できます**。
+- `open_page` は、エージェントの herdr ペインの隣に terminal-browser のペインを分割します。窓は
+  エージェントのペインごとに 1 つで、同じエージェントからの次の呼び出しは、あなたが閉じるまでその窓を
+  使い回します。**エージェントは `terminal-browser action` でこのページを操作できます**。
   Chromium の窓ではできません。ブローカーがエージェントのペインを知らないときは、代わりに
   Chromium の窓を開きます。herdr の外で動くエージェントと、Codex のプラグイン（Codex はプラグインの
   MCP サーバーにエージェントの herdr ペインを渡しません）がこれに当たります。
-  [HTTP モード](#http-モード)にもエージェントのペインはありませんが、こちらは `aac-listen` の隣に
-  開きます。`AGENT_LOGIN_BROKER_TERMINAL_BROWSER` を存在しないパスにすると、常に Chromium の窓に
-  なります。どちらの場合も、承認待ちには `aac-listen` へ切り替わります。
+  [HTTP モード](#http-モード)では、呼び出し元がヘッダーで自分のペインを伝えます。ヘッダーが無ければ
+  `aac-listen` の隣に開きます。`AGENT_LOGIN_BROKER_TERMINAL_BROWSER` を存在しないパスにすると、
+  常に Chromium の窓になります。どちらの場合も、承認待ちには `aac-listen` へ切り替わります。
 
 ## HTTP モード
 
@@ -328,6 +328,9 @@ HTTP モードは上級者向けで、通常の構成では要りません。`ag
 - 呼び出し元は `~/.config/agent-login-broker/token`（初回起動時に 0600 で作る）のトークンを
   `X-Agent-Login-Broker-Token` ヘッダーで送る必要があります。このトークンはほかのローカルの
   プロセスやコンテナにツールを使わせないためのもので、ツールを使うエージェントには読めます。
+- 任意で `X-Agent-Login-Broker-Pane` ヘッダーに呼び出し元の herdr ペインの id（その
+  `HERDR_PANE_ID`。例: `w1:p2`）を入れると、`open_page` はそのエージェントの隣に開きます。ペインの
+  id の形でない値は無視し、`aac-listen` の隣に開きます。
 - 受け付ける `Host` ヘッダーは `127.0.0.1`、`localhost`、`host.docker.internal` です。
   コンテナからは、`host.docker.internal` がホストの loopback に届く環境で使えます（[OrbStack](https://orbstack.dev) で
   確認）。Linux の [Docker](https://www.docker.com) では `host.docker.internal` がブリッジのゲートウェイを指すので、
