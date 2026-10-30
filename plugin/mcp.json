@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "agent-login-broker": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "agent-login-broker@0.1.0"
+      ]
+    }
+  }
+}

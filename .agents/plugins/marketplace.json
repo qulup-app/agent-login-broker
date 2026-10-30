@@ -1,0 +1,20 @@
+{
+  "name": "agent-login-broker",
+  "interface": {
+    "displayName": "agent-login-broker"
+  },
+  "plugins": [
+    {
+      "name": "agent-login-broker",
+      "source": {
+        "source": "local",
+        "path": "./plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
