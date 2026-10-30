@@ -1,18 +1,40 @@
 {
   "name": "agent-login-broker",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server that logs an AI agent into websites with your Bitwarden credentials, built to keep them away from the agent",
   "license": "MIT",
   "author": "qulup",
-  "repository": "github:qulup-app/agent-login-broker",
-  "keywords": ["mcp", "bitwarden", "login", "ai-agent", "pi-package"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qulup-app/agent-login-broker.git"
+  },
+  "keywords": [
+    "mcp",
+    "bitwarden",
+    "login",
+    "ai-agent",
+    "pi-package"
+  ],
   "type": "module",
-  "bin": { "agent-login-broker": "server.mjs" },
-  "files": ["server.mjs", "plugin/skills", "pi", "npm-shrinkwrap.json"],
-  "engines": { "node": ">=20" },
+  "bin": {
+    "agent-login-broker": "server.mjs"
+  },
+  "files": [
+    "server.mjs",
+    "plugin/skills",
+    "pi",
+    "npm-shrinkwrap.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "pi": {
-    "extensions": ["./pi/extension.mjs"],
-    "skills": ["./plugin/skills"]
+    "extensions": [
+      "./pi/extension.mjs"
+    ],
+    "skills": [
+      "./plugin/skills"
+    ]
   },
   "scripts": {
     "test": "node --test"

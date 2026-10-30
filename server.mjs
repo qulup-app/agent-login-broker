@@ -583,6 +583,12 @@ const TERMINAL_BROWSER = process.env.AGENT_LOGIN_BROKER_TERMINAL_BROWSER || "ter
 let terminalBrowser;
 const hasTerminalBrowser = () => terminalBrowser ??= new Promise((resolve) =>
   execFile(TERMINAL_BROWSER, ["--version"], { timeout: 15_000 }, (err) => resolve(err?.code !== "ENOENT")));
+// The caller's herdr pane decides where terminal-browser splits. A stdio broker started without it
+// (Codex does not pass HERDR_* to plugin servers; or an agent outside herdr) would borrow
+// aac-listen's pane, away from the agent, so it opens a Chromium window instead. The detached
+// HTTP broker never has a pane and keeps aac-listen's.
+let httpMode = false;
+const usesTerminalBrowser = async () => (httpMode || !!process.env.HERDR_PANE_ID) && hasTerminalBrowser();
 
 // Only cookies the host itself would be sent (its own or a parent domain's): a login can
 // collect cookies of other sites (SSO, analytics) that the viewer has no business holding.
@@ -590,7 +596,7 @@ export const cookiesFor = (cookies, host) =>
   cookies.filter((c) => { const d = c.domain.replace(/^\./, ""); return host === d || host.endsWith(`.${d}`); });
 
 // Show the logged-in site to the human: in a terminal-browser pane inside herdr when
-// terminal-browser is installed, else in a Chromium window of this process. Either browser
+// usesTerminalBrowser() holds, else in a Chromium window of this process. Either browser
 // only ever receives session state (the host's cookies and localStorage), never the password.
 async function openPage(host, path) {
   const ctx = browserSessions.get(host);
@@ -601,7 +607,7 @@ async function openPage(host, path) {
   return showPage(host, url, cookiesFor(cookies, host), storage);
 }
 
-const showPage = async (host, url, cookies, storage, opts) => (await hasTerminalBrowser())
+const showPage = async (host, url, cookies, storage, opts) => (await usesTerminalBrowser())
   ? openInTerminalBrowser(host, url, cookies, storage, opts)
   : openInChromium(host, url, cookies, storage, opts);
 
@@ -754,7 +760,7 @@ async function buildServer(allowed) {
   const { z } = await import("zod");
   const sites = allowed ? [...allowed].join(", ") || "(none configured)"
     : `any site with a recipe in ${RECIPES_FILE} (now: ${Object.keys(RECIPES).join(", ") || "none"})`;
-  const tb = await hasTerminalBrowser();
+  const tb = await usesTerminalBrowser();
   // Agents otherwise reach for a general browser tool and type the password themselves
   // (Codex did exactly that — measured); the instructions tell them this server owns logins.
   const server = new McpServer({ name: "agent-login-broker", version: VERSION }, {
@@ -855,6 +861,7 @@ async function main() {
   const port = process.argv[2] === "--http" ? Number(process.argv[3]) : 0;
   let httpServer;
   if (port) {
+    httpMode = true;
     httpServer = await serveHttp(port, allowed);
   } else {
     const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");

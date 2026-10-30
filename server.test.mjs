@@ -209,3 +209,27 @@ test("every plugin manifest ships the package's own version and launches that ex
   assert.equal(json("./.claude-plugin/marketplace.json").plugins.find((p) => p.name === name).version, version);
   assert.deepEqual(json("./plugin/mcp.json").mcpServers[name].args, ["-y", `${name}@${version}`]);
 });
+
+test("open_page uses terminal-browser only when the agent's herdr pane is known", async () => {
+  const { spawn } = await import("node:child_process");
+  // Any executable stands in for terminal-browser: only its presence is checked at startup.
+  const describe = (extra) => new Promise((resolve, reject) => {
+    const env = { ...process.env, AGENT_LOGIN_BROKER_TERMINAL_BROWSER: process.execPath, AGENT_LOGIN_BROKER_SITES: "a.example", ...extra };
+    if (!("HERDR_PANE_ID" in extra)) delete env.HERDR_PANE_ID;
+    const p = spawn(process.execPath, [new URL("./server.mjs", import.meta.url).pathname], { env, stdio: ["pipe", "pipe", "ignore"] });
+    let out = "";
+    p.stdout.on("data", (d) => {
+      out += d;
+      const m = out.split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } }).find((x) => x?.id === 2);
+      if (m) { p.kill(); resolve(m.result.tools.find((t) => t.name === "open_page").description); }
+    });
+    p.on("error", reject);
+    p.stdin.write([
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "t", version: "0" } } },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+    ].map((m) => JSON.stringify(m)).join("\n") + "\n");
+  });
+  assert.match(await describe({ HERDR_PANE_ID: "w1:p1" }), /terminal-browser pane/);
+  assert.match(await describe({}), /Chromium window/);
+});

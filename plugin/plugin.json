@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "agent-login-broker",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Logs your AI agent into websites with your Bitwarden credentials, built to keep them away from the agent",
   "author": {
     "name": "qulup"

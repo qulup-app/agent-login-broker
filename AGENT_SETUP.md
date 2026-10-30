@@ -52,10 +52,10 @@ only after the agent restarts; tell the user so.
 
 ## 3. Install the matching Chromium
 
-Replace `0.1.0` with the version from step 2:
+Replace `0.1.1` with the version from step 2:
 
 ```bash
-npx -y -p agent-login-broker@0.1.0 playwright install chromium
+npx -y -p agent-login-broker@0.1.1 playwright install chromium
 ```
 
 Do not use a plain `npx playwright install chromium`: it may fetch a browser for a different

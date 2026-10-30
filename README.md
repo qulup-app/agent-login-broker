@@ -15,7 +15,7 @@ For each site, the broker needs a **recipe**: a few lines saying where the login
 which fields take the account and the password. Your agent drafts it for you and shows it to
 you before saving.
 
-> **Status: early (0.1.0).** It handles your passwords; read
+> **Status: early (0.1.1).** It handles your passwords; read
 > [What it protects, and what it does not](#what-it-protects-and-what-it-does-not) before use.
 > Tested on macOS only; Linux and Windows are untested.
 
@@ -32,17 +32,16 @@ you before saving.
 - Optional: [herdr](https://herdr.dev), a terminal workspace manager for AI agents, together
   with [terminal-browser](https://github.com/zenbu-labs/terminal-browser), a browser that runs in a herdr pane. They bring approvals to the
   front and show logged-in pages beside the agent ([herdr integration](#herdr-integration)).
-  Install terminal-browser only together with herdr: on its own, `open_page` fails.
 
 ## Quick start
 
 1. Install the plugin for your agent ([Install](#install)), then restart the agent. Its tool
    list (`/mcp` in Claude Code) should now show `agent-login-broker`.
-2. Install the Chromium build this release expects. The command below is for 0.1.0; for
+2. Install the Chromium build this release expects. The command below is for 0.1.1; for
    another release, use the plugin's version (your agent's plugin list shows it):
 
    ```bash
-   npx -y -p agent-login-broker@0.1.0 playwright install chromium
+   npx -y -p agent-login-broker@0.1.1 playwright install chromium
    ```
 
    A plain `npx playwright install chromium` fetches the browser for the latest Playwright,
@@ -246,8 +245,8 @@ button. The tools say so and point to Google's own APIs or a normal browser inst
 
 What `open_page` does:
 
-- It opens a Chromium window on this machine, or a terminal-browser pane when terminal-browser
-  is installed.
+- It opens a Chromium window on this machine, or a terminal-browser pane beside the agent when
+  terminal-browser is installed and the agent runs in herdr ([herdr integration](#herdr-integration)).
 - It hands over only the host's session state: the cookies the host itself would be sent (its
   own and its parent domains') and its localStorage.
 - Until the page has landed, the page itself cannot move off the host: navigations and
@@ -306,7 +305,7 @@ claude() { aac_listen_ensure; command claude "$@"; }   # likewise for codex, omp
 
 Then, on each login, the broker switches herdr to `aac-listen` with a notification and
 switches back once you answer, and `open_page` opens the logged-in site in a pane beside the
-agent.
+agent (with the Codex plugin, in a Chromium window; see [herdr integration](#herdr-integration)).
 
 ## herdr integration
 
@@ -316,13 +315,14 @@ With [herdr](https://herdr.dev) and terminal-browser installed:
   the broker focuses that workspace, shows a notification, and returns you to where you
   were once the request is answered (unless you moved meanwhile). Without herdr you get a
   desktop notification instead (see [Pairing and approving](#pairing-and-approving)).
-- `open_page` splits a terminal-browser pane next to the agent's herdr pane (or next to
-  `aac-listen` when the server has no pane of its own) and reuses that one window. **The
-  agent can drive this page through `terminal-browser action`**, unlike the Chromium window.
-  Once `terminal-browser` is on `PATH`, `open_page` always takes this route: outside herdr
-  (no agent pane and no `aac-listen` workspace) it fails instead of falling back to the
-  Chromium window. Point `AGENT_LOGIN_BROKER_TERMINAL_BROWSER` at a nonexistent path to force
-  the Chromium window.
+- `open_page` splits a terminal-browser pane next to the agent's herdr pane. Every later
+  `open_page` that uses terminal-browser, from any agent or the HTTP mode, reuses that one
+  window where it is, until you close it. **The agent can drive this page through `terminal-browser action`**, unlike the
+  Chromium window. When the broker does not know the agent's pane, it opens a Chromium window
+  instead: an agent outside herdr, or the Codex plugin (Codex does not pass the agent's herdr
+  pane to plugin MCP servers). [HTTP mode](#http-mode) has no agent pane either and opens
+  beside `aac-listen`. Point `AGENT_LOGIN_BROKER_TERMINAL_BROWSER` at a nonexistent path to
+  always use the Chromium window. Either way, approvals still switch to `aac-listen`.
 
 ## HTTP mode
 
@@ -366,9 +366,10 @@ Streamable HTTP on `127.0.0.1` only, for clients that cannot spawn the server th
 - After login, the agent gets whatever the tools allow. A session handed to terminal-browser
   is usable by the agent too — anything that page can do (on a brokerage, placing orders),
   the agent can. Do not `open_page` sites where that is dangerous.
-- The login page shown after a bot check is in that same terminal-browser, so whatever you
-  type there — your password included — is readable by the agent. The agent is told not to
-  touch the page; if that is not enough for a site, log in from your usual browser instead.
+- When `open_page` uses terminal-browser, the login page shown after a bot check opens there
+  too, so whatever you type there — your password included — is readable by the agent. The
+  agent is told not to touch the page; if that is not enough for a site, log in from your
+  usual browser instead. In a Chromium window the agent has no handle on the page.
 - Typing the password into the site's page means it is not held to the site: the page's own
   scripts and the third-party ones it loads (analytics, ads, CDNs) can read it and send it
   anywhere ([How it logs in](#how-it-logs-in)). "Logins go only to `https://<site>`" above
